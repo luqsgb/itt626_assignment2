@@ -85,31 +85,78 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
 
     try {
-      final response = await http.get(
-        Uri.parse('https://api.mypapit.net/crypto/XRPMYR.json'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 10));
+      // Create HTTP client with custom configuration
+      final client = http.Client();
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonData = json.decode(response.body);
-        final newXrpData = XRPData.fromJson(jsonData);
+      // Try multiple endpoints as fallback
+      final List<String> endpoints = [
+        'https://api.mypapit.net/crypto/XRPMYR.json',
+        'http://api.mypapit.net/crypto/XRPMYR.json', // HTTP fallback
+      ];
 
-        setState(() {
-          xrpData = newXrpData;
-          isLoading = false;
-          errorMessage = null;
-        });
+      http.Response? response;
+      Exception? lastException;
 
-        // Animate price update
-        _priceController.forward(from: 0);
-      } else {
-        throw Exception('Failed to load XRP data: ${response.statusCode}');
+      for (String endpoint in endpoints) {
+        try {
+          response = await client.get(
+            Uri.parse(endpoint),
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': 'XRPTracker/1.0',
+              'Accept': 'application/json',
+              'Cache-Control': 'no-cache',
+            },
+          ).timeout(const Duration(seconds: 15));
+
+          if (response.statusCode == 200) {
+            break; // Success, exit loop
+          }
+        } catch (e) {
+          lastException = e is Exception ? e : Exception(e.toString());
+          print('Failed to fetch from $endpoint: $e');
+          continue; // Try next endpoint
+        }
       }
+
+      client.close();
+
+      if (response == null || response.statusCode != 200) {
+        throw lastException ?? Exception('All endpoints failed');
+      }
+
+      final Map<String, dynamic> jsonData = json.decode(response.body);
+      final newXrpData = XRPData.fromJson(jsonData);
+
+      setState(() {
+        xrpData = newXrpData;
+        isLoading = false;
+        errorMessage = null;
+      });
+
+      // Animate price update
+      _priceController.forward(from: 0);
+
     } catch (e) {
+      String errorMsg = e.toString();
+
+      // Provide more user-friendly error messages
+      if (errorMsg.contains('SocketException') || errorMsg.contains('host lookup')) {
+        errorMsg = 'Network connection failed. Please check your internet connection.';
+      } else if (errorMsg.contains('TimeoutException')) {
+        errorMsg = 'Request timed out. Please try again.';
+      } else if (errorMsg.contains('ClientException')) {
+        errorMsg = 'Connection error. Please check your network settings.';
+      } else {
+        errorMsg = errorMsg.replaceAll('Exception: ', '');
+      }
+
       setState(() {
         isLoading = false;
-        errorMessage = 'Failed to fetch data: ${e.toString().replaceAll('Exception: ', '')}';
+        errorMessage = errorMsg;
       });
+
+      print('Error fetching XRP data: $e');
     }
   }
 

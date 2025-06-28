@@ -7,7 +7,6 @@ import '../pages/about.dart';
 enum AppRoute {
   home,
   about,
-  calculator,
 }
 
 final GoRouter routing = GoRouter(
